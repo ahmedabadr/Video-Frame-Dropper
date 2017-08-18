@@ -1,6 +1,7 @@
 // dropFrames.c
 // Build
 // gcc dropFrames.c -lavformat -lavcodec -lswscale -lz -lavutil -o dropFrames
+// gcc dropFrames.c -L../../Work/sqm-ffmpeg/bld/lib -lavformat -lavcodec -lswscale -lz -lavutil -o dropFrames -Wl,-rpath=../../Work/sqm-ffmpeg/bld/lib
 // Use
 // ./dropFrames [inputFiles] [outputFile] [frameType] [dropRate] [logFile]
 
@@ -11,48 +12,226 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define PACKET_BUFFER_SIZE 600
+
 //static AVFormatContext *ifmt_ctx;
 static AVFormatContext *ofmt_ctx;
 
-static int open_input_file(const char *filename, AVFormatContext *ifmt_ctx)
-{
-    int ret;
-    unsigned int i;
+struct Arguments {
+    char *inputFileName;
+    char *outputFileName;
+    char *frameType;
+    enum AVPictureType frameTypeEnum;
+    int frameLossRate;
+    char *logFileName;
+};
 
-    ifmt_ctx = NULL;
-    if ((ret = avformat_open_input(&ifmt_ctx, filename, NULL, NULL)) < 0)
-    {
-        printf("Cannot open input file\n");
-        return ret;
+struct PacketStatistics {
+    int numOfPackets;
+    int numOfVideoPackets;
+    int numOfAudioPackets;
+    int numOfUnknownPackets;
+    int numOfIFrames;
+    int numOfPFrames;
+    int numOfBFrames;
+    int numOfOtherFrames;
+    int numOfDroppedIFrames;
+    int numOfDroppedPFrames;
+    int numOfDroppedBFrames;
+    int numOfDroppedOtherFrames;
+    int numOfDroppedPackets;
+};
+
+void print_statistics(struct PacketStatistics ps, FILE *f) {
+    printf("\nStatistics\n");
+    if (f) fprintf(f, "\nStatistics\n");
+    printf("-----------\n");
+    if (f) fprintf(f, "-----------\n");
+    printf("Num Of Frames = %d (Video = %d + Audio = %d)\n", ps.numOfPackets, ps.numOfVideoPackets, ps.numOfAudioPackets);
+    if (f) fprintf(f, "Num Of Frames = %d (Video = %d + Audio = %d)\n", ps.numOfPackets, ps.numOfVideoPackets, ps.numOfAudioPackets);
+    printf("Video Frame Types: \n");
+    if (f) fprintf(f, "Video Frame Types: \n");
+    printf(" => I-Frames: %d/%d = %3.2f %%\n", ps.numOfDroppedIFrames, ps.numOfIFrames, 100 * ((double)ps.numOfDroppedIFrames)/((double)ps.numOfIFrames));
+    if (f) fprintf(f, " => I-Frames: %d/%d = %3.2f %%\n", ps.numOfDroppedIFrames, ps.numOfIFrames, 100 * ((double)ps.numOfDroppedIFrames)/((double)ps.numOfIFrames));
+    printf(" => P-Frames: %d/%d = %3.2f %%\n", ps.numOfDroppedPFrames, ps.numOfPFrames, 100 * ((double)ps.numOfDroppedPFrames)/((double)ps.numOfPFrames));
+    if (f) fprintf(f, " => P-Frames: %d/%d = %3.2f %%\n", ps.numOfDroppedPFrames, ps.numOfPFrames, 100 * ((double)ps.numOfDroppedPFrames)/((double)ps.numOfPFrames));
+    printf(" => B-Frames: %d/%d = %3.2f %%\n", ps.numOfDroppedBFrames, ps.numOfBFrames, 100 * ((double)ps.numOfDroppedBFrames)/((double)ps.numOfBFrames));
+    if (f) fprintf(f, " => B-Frames: %d/%d = %3.2f %%\n", ps.numOfDroppedBFrames, ps.numOfBFrames, 100 * ((double)ps.numOfDroppedBFrames)/((double)ps.numOfBFrames));
+    printf(" => O-Frames: %d/%d = %3.2f %%\n", ps.numOfDroppedOtherFrames, ps.numOfOtherFrames, 100 * ((double)ps.numOfDroppedOtherFrames)/((double)ps.numOfOtherFrames));
+    if (f) fprintf(f, " => O-Frames: %d/%d = %3.2f %%\n", ps.numOfDroppedOtherFrames, ps.numOfOtherFrames, 100 * ((double)ps.numOfDroppedOtherFrames)/((double)ps.numOfOtherFrames));
+    printf("-------------------------------------\n");
+    if (f) fprintf(f, "-------------------------------------\n");
+    printf(" => Total   : %d/%d = %f %%\n", ps.numOfDroppedPackets, ps.numOfVideoPackets, 100 * ((double)ps.numOfDroppedPackets)/((double)ps.numOfVideoPackets));
+    if (f) fprintf(f, " => Total   : %d/%d = %f %%\n", ps.numOfDroppedPackets, ps.numOfVideoPackets, 100 * ((double)ps.numOfDroppedPackets)/((double)ps.numOfVideoPackets));
+}
+
+int parse_arguments(int argc, char *argv[], struct Arguments *a) {
+    if (argc <= 5) {
+        printf("USAGE: ./dropFrames inputFile outputFile frameType dropRate [logFile]\n");
+        return -1;
     }
+    a->inputFileName = argv[1];
+    printf("input: %s\n", a->inputFileName);
+    a->outputFileName = argv[2];
+    printf("output: %s\n", a->outputFileName);
+    
+    a->frameType = argv[3];
+    if ( strcmp(a->frameType, "I") == 0 )
+        a->frameTypeEnum = AV_PICTURE_TYPE_I;
+    else if ( strcmp(a->frameType, "P") == 0 )
+        a->frameTypeEnum = AV_PICTURE_TYPE_P;
+    else if ( strcmp(a->frameType, "B") == 0 )
+        a->frameTypeEnum = AV_PICTURE_TYPE_B;
+    else
+        a->frameTypeEnum = AV_PICTURE_TYPE_NONE;
+    printf("Frame Type: %d => %s\n", a->frameTypeEnum, a->frameType);
 
-    if ((ret = avformat_find_stream_info(ifmt_ctx, NULL)) < 0)
-    {
-        printf("Cannot find stream information\n");
-        return ret;
+    a->frameLossRate = (int) strtol(argv[4], NULL, 10);
+    printf("FLR: %d\%\n", a->frameLossRate);
+    if (argc >= 6) {
+        a->logFileName = argv[5];
+        printf("log: %s\n", a->logFileName);
     }
+    return 0;
+}
 
-    for (i = 0; i < ifmt_ctx->nb_streams; i++)
-    {
-        AVStream *stream;
-        AVCodecContext *codec_ctx;
-        stream = ifmt_ctx->streams[i];
-        codec_ctx = stream->codec;
-        /* Reencode video & audio and remux subtitles etc. */
-        if (codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO || codec_ctx->codec_type == AVMEDIA_TYPE_AUDIO)
-        {
-            /* Open decoder */
-            ret = avcodec_open2(codec_ctx, avcodec_find_decoder(codec_ctx->codec_id), NULL);
-            if (ret < 0)
-            {
-                printf("Failed to open decoder for stream #%u\n", i);
-                return ret;
-            }
+int find_packet(AVPacket pktBuffer[PACKET_BUFFER_SIZE], int frmTypeBuffer[PACKET_BUFFER_SIZE], int pktBufferSize, AVFrame* frame) {
+    int matchingIndex = -1;
+    int i;
+    for (i = 0; i < pktBufferSize; i++) {
+        if (pktBuffer[i].pts == frame->pkt_pts) {
+            matchingIndex = i;
+            frmTypeBuffer[i] = frame->pict_type;
+            break;
         }
     }
+    return matchingIndex;
+}
 
-    //av_dump_format(ifmt_ctx, 0, filename, 0);
-    return 0;
+int remove_packet(AVPacket pktBuffer[PACKET_BUFFER_SIZE], int frmTypeBuffer[PACKET_BUFFER_SIZE], int pktBufferSize, int pktIndex) {
+    if (pktIndex >= pktBufferSize)
+        return -1;
+    
+    int i;
+    for (i = pktIndex+1; i < pktBufferSize; i++) {
+        frmTypeBuffer[i-1] = frmTypeBuffer[i];
+        pktBuffer[i-1] = pktBuffer[i];
+    }
+    pktBufferSize--;
+    return pktBufferSize;
+}
+
+int should_drop(int currFrmType, int frmTypeToDrop, int frmLossRate, FILE *f, struct PacketStatistics *ps) {
+    int drp = 0;
+    srand(time(NULL));
+    int randomNumber = (rand() % 100);
+    if (currFrmType == AV_PICTURE_TYPE_I) {
+        ps->numOfIFrames++;
+        if ( (randomNumber < frmLossRate) && ( (frmTypeToDrop == AV_PICTURE_TYPE_I) || (frmTypeToDrop == AV_PICTURE_TYPE_NONE) ) ) {
+            ps->numOfDroppedIFrames++;
+            ps->numOfDroppedPackets++;
+            drp = 1;
+        }
+        if (drp){
+            printf("\n-");
+            if (f) fprintf(f, "\n-");
+        } else {
+            printf("\nI");
+            if (f) fprintf(f, "\nI");
+        }
+    } else if (currFrmType == AV_PICTURE_TYPE_P) {
+        ps->numOfPFrames++;
+        if ( (randomNumber < frmLossRate) && ( (frmTypeToDrop == AV_PICTURE_TYPE_P) || (frmTypeToDrop == AV_PICTURE_TYPE_NONE) ) ) {
+            ps->numOfDroppedPFrames++;
+            ps->numOfDroppedPackets++;
+            drp = 1;
+        }
+        if (drp) {
+            printf("-");
+            if (f) fprintf(f, "-");
+        } else {
+            printf("P");
+            if (f) fprintf(f, "P");
+        }
+    } else if (currFrmType == AV_PICTURE_TYPE_B) {
+        ps->numOfBFrames++;
+        if ( (randomNumber < frmLossRate) && ( (frmTypeToDrop == AV_PICTURE_TYPE_B) || (frmTypeToDrop == AV_PICTURE_TYPE_NONE) ) ) {
+            ps->numOfDroppedBFrames++;
+            ps->numOfDroppedPackets++;
+            drp = 1;
+        }
+        if (drp) {
+            printf("-");
+            if (f) fprintf(f, "-");
+        } else {
+            printf("B");
+            if (f) fprintf(f, "B");
+        }
+    } else {
+        ps->numOfOtherFrames++;
+        if ( (randomNumber < frmLossRate) && (frmTypeToDrop == AV_PICTURE_TYPE_NONE) ) {
+            ps->numOfDroppedOtherFrames++;
+            ps->numOfDroppedPackets++;
+            drp = 1;
+        }
+        if (drp) {
+            printf("-");
+            if (f) fprintf(f, "-");
+        }
+        else {
+            printf("O");
+            if (f) fprintf(f, "O");
+        }
+    }
+    return drp;
+}
+
+static AVFormatContext *open_input_file(struct Arguments a, int *vS, int *aS) {
+    int i;
+    // Open video file
+    AVFormatContext *s = NULL;
+    AVDictionary *d = NULL;
+    s = avformat_alloc_context();
+    s->probesize = 5 * 1000000;            // bytes
+    s->max_analyze_duration = 5 * 1000000; // microseconds
+    //pFormatCtx->fps_probe_size = 3000;
+
+    if (avformat_open_input(&s, a.inputFileName, NULL, &d) != 0) {
+        av_log(s, AV_LOG_ERROR, "Cannot Open Input: %s\n", a.inputFileName);
+        return NULL; // Couldn't open file
+    }
+
+    av_log(s, AV_LOG_DEBUG, "%d Programs, %d Streams\n", s->nb_programs, s->nb_streams);
+    for (i = 0; i < s->nb_streams; i++)
+        av_log(s, AV_LOG_DEBUG, "StreamID[%d] = %d\n", i, s->streams[i]->id);
+
+    // Retrieve stream information
+    if (avformat_find_stream_info(s, NULL) < 0)
+        return NULL; // Couldn't find stream information
+
+    // Dump information about file onto standard error
+    av_dump_format(s, 0, a.inputFileName, 0);
+    // usleep(2 * 1000000);
+
+    // Find video and audio streams
+    *vS = -1;
+    *aS = -1;
+    for (i = 0; i < s->nb_streams; i++)
+    {
+        if (s->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO) {
+            *vS = i;
+        } else if  (s->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO) {
+            *aS = i;
+        }
+    }
+    if (*vS == -1) {
+        av_log(s, AV_LOG_ERROR, "No Video Stream\n");
+        return NULL;
+    }
+    if (*aS == -1) 
+        av_log(s, AV_LOG_WARNING, "No Audio Stream\n");
+
+    return s;
 }
 
 static int open_output_file(const char *filename, AVFormatContext *ifmt_ctx)
@@ -67,9 +246,8 @@ static int open_output_file(const char *filename, AVFormatContext *ifmt_ctx)
     ofmt_ctx = NULL;
     avformat_alloc_output_context2(&ofmt_ctx, NULL, NULL, filename);
     //avformat_alloc_output_context2(&ofmt_ctx, NULL, "mpegts", filename);
-    if (!ofmt_ctx)
-    {
-        printf("Could not create output context\n");
+    if (!ofmt_ctx) {
+        av_log(ofmt_ctx, AV_LOG_ERROR, "Could not create output context\n");
         return AVERROR_UNKNOWN;
     }
 
@@ -156,129 +334,41 @@ static int open_output_file(const char *filename, AVFormatContext *ifmt_ctx)
 
 int main(int argc, char *argv[])
 {
-    av_log_set_level(AV_LOG_FATAL);
-    // Initalizing these to NULL prevents segfaults!
+    // Initalizing Contexts to NULL prevents segfaults!
     AVFormatContext *pFormatCtx = NULL;
-    AVFormatContext *pFormatCtx2 = NULL;
-    AVFormatContext *oFormatCtx = NULL;
-    int i, videoStream, audioStream;
-    AVCodecContext *pCodecCtxOrig = NULL;
-    AVCodecContext *pCodecCtx = NULL;
-    AVCodec *pCodec = NULL;
-    AVFrame *pFrame = NULL;
-    AVFrame *pFrameRGB = NULL;
+    AVCodecContext *codecCtx = NULL;
+    AVCodec *codec = NULL;
+    AVFrame *frame = NULL;
     AVPacket packet;
-    int numBytes;
-    uint8_t *buffer = NULL;
-    struct SwsContext *sws_ctx = NULL;
 
-    if (argc < 5)
-    {
-        printf("./dropFrames [inputFiles] [outputFile] [frameType] [dropRate]\n");
+    int i, videoStream, audioStream;
+    int frameFinished;
+    enum AVMediaType mediaType;
+    int drop; // boolean
+
+    struct Arguments arguments;
+    struct PacketStatistics pktStats;
+    
+    av_log_set_level(AV_LOG_QUIET);
+
+    if (parse_arguments(argc, argv, &arguments) < 0)
         return -1;
-    }
-
-    char *inputFileName = argv[1];
-    char *outputFileName = argv[2];
-    char *frameType = argv[3];
-    long frameLossRate = strtol(argv[4], NULL, 10);
-
-    char *logFileName;
-    if (argc >= 6)
-        logFileName = argv[5];
-
-    enum AVPictureType frameTypeToDrop;
-    if ( strcmp(frameType, "I") == 0 )
-        frameTypeToDrop = AV_PICTURE_TYPE_I;
-    else if ( strcmp(frameType, "P") == 0 )
-        frameTypeToDrop = AV_PICTURE_TYPE_P;
-    else if ( strcmp(frameType, "B") == 0 )
-        frameTypeToDrop = AV_PICTURE_TYPE_B;
-    else
-        frameTypeToDrop = AV_PICTURE_TYPE_NONE;
-
-
-    printf("Input = %s, Output = %s, frameType = %s(%d), dropRate = %d, Log = %s\n", inputFileName, outputFileName, frameType, frameTypeToDrop, frameLossRate, logFileName);
 
     // Register all formats and codecs
     av_register_all();
     avformat_network_init();
 
-    // Open video file
-    AVDictionary *d = NULL;
-    //av_dict_set_int(&d, "selected_reps", "3,4", 0);
-    //av_dict_set(&d, "selected_reps", "0", 0);
-    pFormatCtx = avformat_alloc_context();
-    pFormatCtx->probesize = 5 * 1000000;            // bytes
-    pFormatCtx->max_analyze_duration = 5 * 1000000; // microseconds
-    //pFormatCtx->fps_probe_size = 3000;
-    if (avformat_open_input(&pFormatCtx, inputFileName, NULL, &d) != 0) {
-        printf("Cannot Open Input: %s\n", inputFileName);
-        return -1; // Couldn't open file
-    }
-
-    int ii;
-    for (ii = 0; ii < pFormatCtx->nb_streams; ii++)
-        printf("StreamID[%d] = %d\n", ii, pFormatCtx->streams[ii]->id);
-
-    printf("Show %d Streams \n", pFormatCtx->nb_streams);
-    int streamIndex;
-    for (streamIndex = 0; streamIndex < pFormatCtx->nb_streams; streamIndex++)
-        printf("Discard[%d] = %d\n", streamIndex, pFormatCtx->streams[streamIndex]->discard);
-    printf("Done Showing Streams \n");
-
-    AVProgram *program;
-    printf("Show %d Programs \n", pFormatCtx->nb_programs);
-    for (ii = 0; ii < pFormatCtx->nb_programs; ii++)
-    {
-        if (pFormatCtx->programs[ii])
-        {
-            program = pFormatCtx->programs[ii];
-            AVDictionaryEntry *name = av_dict_get(program->metadata, "service_name", NULL, 0);
-            if (name)
-                printf("Program[%d]: Name = %s\n", ii, name->value);
-            else
-                printf("Program[%d]: Name = %s\n", ii, "NULL");
-        }
-        else
-        {
-            printf("Program[%d]: NULL\n");
-        }
-    }
-    printf("Done Showing Programs \n");
-
-    // Retrieve stream information
-    printf("Find Stream Info Start ... \n");
-    if (avformat_find_stream_info(pFormatCtx, NULL) < 0)
-        return -1; // Couldn't find stream information
-    printf("Find Stream Info Done\n");
-
-    // Dump information about file onto standard error
-    //printf("Dump Stream Format Start ... \n");
-    //av_dump_format(pFormatCtx, 0, argv[1], 0);
-    //printf("Dump Stream Format Done\n");
-
-    //usleep(2 * 1000000);
-
-    // Find the first video stream
-    videoStream = -1;
-    audioStream = -1;
-    for (i = 0; i < pFormatCtx->nb_streams; i++)
-    {
-        if (pFormatCtx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO) {
-            videoStream = i;
-        } else if  (pFormatCtx->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO) {
-            audioStream = i;
-        }
-    }
-    if (videoStream == -1) printf("No Video Stream\n");
-    if (audioStream == -1) printf("No Audio Stream\n");
+    pFormatCtx = open_input_file(arguments, &videoStream, &audioStream);
+    if (!pFormatCtx)
+        return -1;
     
-    open_output_file(outputFileName, pFormatCtx);
+    // Open Output File
+    open_output_file(arguments.outputFileName, pFormatCtx);
     
     // Open Log File
-    FILE *f = fopen(logFileName, "w");
-    if (argc == 5) {
+    FILE *f;
+    if (argc == 6) {
+        f = fopen(arguments.logFileName, "w");
         if (f == NULL)
         {
             printf("Error opening file!\n");
@@ -286,49 +376,8 @@ int main(int argc, char *argv[])
         }
     }
 
-
-    /*
-    int jj;
-    av_log(NULL, AV_LOG_WARNING, "pFormatCtx = %d\n", pFormatCtx);
-    for (ii = 0; ii < pFormatCtx->nb_programs; ii++)
-    {
-        av_log(NULL, AV_LOG_WARNING, "Program[%d]: #Streams = %d\n", ii, pFormatCtx->programs[ii]->nb_stream_indexes);
-        for (jj = 0; jj < pFormatCtx->programs[ii]->nb_stream_indexes; jj++)
-            av_log(NULL, AV_LOG_WARNING, "Program[%d]: stream_index = %d\n", ii, jj, pFormatCtx->programs[ii]->stream_index[jj]);
-    }
-
-    av_log(NULL, AV_LOG_WARNING, "pFormatCtx = %d\n", pFormatCtx);
-    for (ii = 0; ii < pFormatCtx->nb_streams; ii++)
-    {
-        av_log(NULL, AV_LOG_WARNING, "Stream[%d]->id = %d\n", ii, pFormatCtx->streams[ii]->id);
-    }
-
-    av_log(NULL, AV_LOG_WARNING, "ofmt_ctx = %d\n", ofmt_ctx);
-    for (ii = 0; ii < ofmt_ctx->nb_streams; ii++)
-    {
-        av_log(NULL, AV_LOG_WARNING, "Stream[%d]->id = %d\n", ii, ofmt_ctx->streams[ii]->id);
-    }
-    */
-
     i = 0;
-    int numOfPackets = 0;
-    int numOfVideoPackets = 0, numOfAudioPackets = 0, numOfUnknownPackets = 0;
-    int numOfIFrames = 0, numOfPFrames = 0, numOfBFrames = 0, numOfOtherFrames = 0;
-    int numOfDroppedIFrames = 0, numOfDroppedPFrames = 0, numOfDroppedBFrames = 0, numOfDroppedOtherFrames = 0;
-    
-    int randomNumber = 0;
-    int numOfDroppedPackets = 0;
-    enum AVMediaType mediaType;
-    int drop; // boolean
 
-    AVFrame *frame = NULL;
-    AVCodecContext *codecCtx = NULL;
-    AVCodec *codec = NULL;
-    int frameFinished;
-
-    int dtsToDrop[100];
-    for (i = 0; i < 100; i++)
-        dtsToDrop[i] = -1;
 
     // ---- VIDEO DECODING ---- 
     // Find the decoder for the video stream
@@ -351,155 +400,116 @@ int main(int argc, char *argv[])
     // Allocate video frame
     frame = av_frame_alloc();
     // ---- VIDEO DECODING ---- 
-
-    printf("Start reading frames ... \n");
     
-    srand(time(NULL));
+    int pktIndex;
 
+    AVPacket packetBuffer[PACKET_BUFFER_SIZE]; // 10 Seconds @ 60 fps
+    int frameTypeBuffer[PACKET_BUFFER_SIZE];
+    for (i = 0; i < PACKET_BUFFER_SIZE; i++)
+        frameTypeBuffer[i] = -1; // Uninitialized
+    int packetBufferSize = 0;
 
     while (av_read_frame(pFormatCtx, &packet) >= 0)
     {
-
-        drop = 0;
         mediaType = pFormatCtx->streams[packet.stream_index]->codec->codec_type;
 
-        /*
-        if ( (numOfPackets % 100) == 0 ) {
-            printf("Packet[%d] (%d, a = %d, v = %d) => %d\n", numOfPackets, packet.stream_index, audioStream, videoStream, mediaType);
-            printf("Packet: Duration = %d, PTS = %" PRId64 ", DTS = %" PRId64 "\n", packet.duration, packet.pts, packet.dts);
-            printf("Random Number = %d\n", randomNumber);
-        }
-        */
-
         if (mediaType == AVMEDIA_TYPE_VIDEO) {
-            //usleep( int( 1000000.0 / 30.0) );
+
+            // Buffering
+            av_packet_ref(&packetBuffer[packetBufferSize], &packet);
+            av_copy_packet(&packetBuffer[packetBufferSize], &packet);
+            av_copy_packet_side_data(&packetBuffer[packetBufferSize], &packet);
+            packetBuffer[packetBufferSize] = packet;
+            packetBufferSize++;
+            
             // ---- VIDEO DECODING ---- 
             avcodec_decode_video2(codecCtx, frame, &frameFinished, &packet);
-            //printf("DTS = (%d)%" PRId64 " / (%d)%" PRId64 "\n", frame->pict_type, frame->pts, packet.flags & AV_PKT_FLAG_KEY, packet.pts);
-            if (frameFinished) {
-                ;
-                //printf("Packet[%d] = %d vs %d\n", numOfVideoPackets, packet.flags & AV_PKT_FLAG_KEY, frame->pict_type);
-            } else {
+            pktIndex = find_packet(packetBuffer, frameTypeBuffer, packetBufferSize, frame);
+            /*if (pktIndex >= 0) {
+                printf("Packet Found @%d: pts (%d vs %d)\n", pktIndex, frame->pkt_pts, packetBuffer[pktIndex].pts);
+                //packet = packetBuffer[pktIndex];
+            }*/
+
+            // Print Buffer
+            /*
+            printf("====================================================\n");
+            if (packetBufferSize < PACKET_BUFFER_SIZE) {
+                for(i = 0; i < packetBufferSize; i++)
+                    printf("Buffer[%d]: Size = %d, PTS = %d, Type = %d\n", i, packetBuffer[i].size, packetBuffer[i].pts, frameTypeBuffer[i]);
+            }
+            printf("====================================================\n");
+            */
+
+            //av_copy_packet(&packet, &packetBuffer[pktIndex]);
+            //av_copy_packet_side_data(&packet, &packetBuffer[pktIndex]);
+            //printf("PTS = (%d)%" PRId64 " | (%d)%" PRId64 "\n", frame->pict_type, frame->pts, packet.flags & AV_PKT_FLAG_KEY, packet.pts);
+            if (!frameFinished) {
                 printf("Incomplete Frame\n");
                 //continue;
             }
-            // ---- VIDEO DECODING ---- 
-            numOfVideoPackets++;
-            randomNumber = (rand() % 100);
-            if (frame->pict_type == AV_PICTURE_TYPE_I) {
-                numOfIFrames++;
-                if ( (randomNumber < frameLossRate) && ( (frameTypeToDrop == AV_PICTURE_TYPE_I) || (frameTypeToDrop == AV_PICTURE_TYPE_NONE) ) ) {
-                    numOfDroppedIFrames++;
-                    numOfDroppedPackets++;
-                    drop = 1;
-                }
-                if (drop){
-                    printf("\n-");
-                    if (f) fprintf(f, "\n-");
+            pktStats.numOfVideoPackets++;
+
+
+            // Writing Frames From Packet Buffer to Output File
+            frameTypeBuffer[0];
+            while ( (frameTypeBuffer[0] != -1) && (packetBufferSize > 0) ) {
+                drop = 0;
+                //printf("currFrameType = %d\n", frameTypeBuffer[0]);
+                drop = should_drop(frameTypeBuffer[0], arguments.frameTypeEnum, arguments.frameLossRate, f, &pktStats);
+
+                if (!drop) {
+                    //printf("\nWriting packet[%d]: size = %d, sI = %d, type = %d\n", 0, packetBuffer[0].size, packetBuffer[0].stream_index, mediaType);
+                    int ffmpegReturn = av_interleaved_write_frame(ofmt_ctx, &packetBuffer[0]);
+                    if (ffmpegReturn < 0) {
+                        char buff[500];
+                        av_strerror(ffmpegReturn, buff, 500);
+                        av_log(NULL, AV_LOG_ERROR, "Error writing frame to %s with error code %d (%s)\n", arguments.outputFileName, ffmpegReturn, buff);
+                        //usleep(2 * 1000000);
+                        return -1;
+                    }
                 } else {
-                    printf("\nI");
-                    if (f) fprintf(f, "\nI");
+                    ;//printf("DROPPED FRAME: Type = %d\n", frameTypeBuffer[0]);
                 }
-            } else if (frame->pict_type == AV_PICTURE_TYPE_P) {
-                numOfPFrames++;
-                if ( (randomNumber < frameLossRate) && ( (frameTypeToDrop == AV_PICTURE_TYPE_P) || (frameTypeToDrop == AV_PICTURE_TYPE_NONE) ) ) {
-                    numOfDroppedPFrames++;
-                    numOfDroppedPackets++;
-                    drop = 1;
-                }
-                if (drop) {
-                    printf("-");
-                    if (f) fprintf(f, "-");
-                } else {
-                    printf("P");
-                    if (f) fprintf(f, "P");
-                }
-            } else if (frame->pict_type == AV_PICTURE_TYPE_B) {
-                numOfBFrames++;
-                if ( (randomNumber < frameLossRate) && ( (frameTypeToDrop == AV_PICTURE_TYPE_B) || (frameTypeToDrop == AV_PICTURE_TYPE_NONE) ) ) {
-                    numOfDroppedBFrames++;
-                    numOfDroppedPackets++;
-                    drop = 1;
-                }
-                if (drop) {
-                    printf("-");
-                    if (f) fprintf(f, "-");
-                } else {
-                    printf("B");
-                    if (f) fprintf(f, "B");
-                }
-            } else {
-                numOfOtherFrames++;
-                if ( (randomNumber < frameLossRate) && (frameTypeToDrop == AV_PICTURE_TYPE_NONE) ) {
-                    numOfDroppedOtherFrames++;
-                    numOfDroppedPackets++;
-                    drop = 1;
-                }
-                if (drop) {
-                    printf("-");
-                    if (f) fprintf(f, "-");
-                }
-                else {
-                    printf("O");
-                    if (f) fprintf(f, "O");
-                }
+
+                av_free_packet(&packetBuffer[0]);
+
+                if (remove_packet(packetBuffer, frameTypeBuffer, packetBufferSize, 0) >= 0)
+                    packetBufferSize--;
             }
+
+
+
+
         } else if (mediaType == AVMEDIA_TYPE_AUDIO) {
-            numOfAudioPackets++;
-            drop = 0;
+            pktStats.numOfAudioPackets++;
+            int ffmpegReturn = av_interleaved_write_frame(ofmt_ctx, &packet);
         } else {
-            numOfUnknownPackets++;
-            drop = 0;
+            pktStats.numOfUnknownPackets++;
+            int ffmpegReturn = av_interleaved_write_frame(ofmt_ctx, &packet);
         }
 
-        if (!drop) {
-            if (av_interleaved_write_frame(ofmt_ctx, &packet) < 0) {
-                printf("Error writing frame to %s\n", outputFileName);
-                return -1;
-            }
-        }
-
-        numOfPackets++;
+        pktStats.numOfPackets++;
             
         // Free the packet that was allocated by av_read_frame
-        av_free_packet(&packet);
+        // av_free_packet(&packet);
     }
 
     av_write_trailer(ofmt_ctx);
 
-    printf("\nStatistics\n");
-    if (f) fprintf(f, "\nStatistics\n");
-    printf("-----------\n");
-    if (f) fprintf(f, "-----------\n");
-    printf("Num Of Frames = %d (Video = %d + Audio = %d)\n", numOfPackets, numOfVideoPackets, numOfAudioPackets);
-    if (f) fprintf(f, "Num Of Frames = %d (Video = %d + Audio = %d)\n", numOfPackets, numOfVideoPackets, numOfAudioPackets);
-    printf("Video Frame Types: \n");
-    if (f) fprintf(f, "Video Frame Types: \n");
-    printf(" => I-Frames: %d/%d = %3.2f %%\n", numOfDroppedIFrames, numOfIFrames, 100 * ((double)numOfDroppedIFrames)/((double)numOfIFrames));
-    if (f) fprintf(f, " => I-Frames: %d/%d = %3.2f %%\n", numOfDroppedIFrames, numOfIFrames, 100 * ((double)numOfDroppedIFrames)/((double)numOfIFrames));
-    printf(" => P-Frames: %d/%d = %3.2f %%\n", numOfDroppedPFrames, numOfPFrames, 100 * ((double)numOfDroppedPFrames)/((double)numOfPFrames));
-    if (f) fprintf(f, " => P-Frames: %d/%d = %3.2f %%\n", numOfDroppedPFrames, numOfPFrames, 100 * ((double)numOfDroppedPFrames)/((double)numOfPFrames));
-    printf(" => B-Frames: %d/%d = %3.2f %%\n", numOfDroppedBFrames, numOfBFrames, 100 * ((double)numOfDroppedBFrames)/((double)numOfBFrames));
-    if (f) fprintf(f, " => B-Frames: %d/%d = %3.2f %%\n", numOfDroppedBFrames, numOfBFrames, 100 * ((double)numOfDroppedBFrames)/((double)numOfBFrames));
-    printf(" => O-Frames: %d/%d = %3.2f %%\n", numOfDroppedOtherFrames, numOfOtherFrames, 100 * ((double)numOfDroppedOtherFrames)/((double)numOfOtherFrames));
-    if (f) fprintf(f, " => O-Frames: %d/%d = %3.2f %%\n", numOfDroppedOtherFrames, numOfOtherFrames, 100 * ((double)numOfDroppedOtherFrames)/((double)numOfOtherFrames));
-    printf("-------------------------------------\n");
-    if (f) fprintf(f, "-------------------------------------\n");
-    printf(" => Total   : %d/%d = %f %%\n", numOfDroppedPackets, numOfVideoPackets, 100 * ((double)numOfDroppedPackets)/((double)numOfVideoPackets));
-    if (f) fprintf(f, " => Total   : %d/%d = %f %%\n", numOfDroppedPackets, numOfVideoPackets, 100 * ((double)numOfDroppedPackets)/((double)numOfVideoPackets));
-    // Free the RGB image
-    av_free(buffer);
-    av_frame_free(&pFrameRGB);
+    print_statistics(pktStats, f);
 
     // Free the YUV frame
-    av_frame_free(&pFrame);
+    av_frame_free(&frame);
 
     // Close the codecs
-    avcodec_close(pCodecCtx);
-    avcodec_close(pCodecCtxOrig);
+    avcodec_close(codecCtx);
 
     // Close the video file
     avformat_close_input(&pFormatCtx);
+    avformat_close_input(&ofmt_ctx);
+
+    // Close log file
+    fclose(f);
 
     return 0;
 }
