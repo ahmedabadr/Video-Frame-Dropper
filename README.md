@@ -11,4 +11,4 @@ Usage:
 
 Example:
 --------
-./dropFrames videos/Messi_GOP10.ts videos/Messi_GOP10_TypeI_FLR1.ts I 1 videos/Messi_GOP10_TypeI_FLR
+./dropFrames videos/Messi_GOP10.ts videos/Messi_GOP10_TypeA_FLR1.ts A 10 videos/Messi_GOP10_TypeA_FLR
