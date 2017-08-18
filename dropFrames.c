@@ -2,8 +2,10 @@
 // Build
 // gcc dropFrames.c -lavformat -lavcodec -lswscale -lz -lavutil -o dropFrames
 // gcc -w dropFrames.c -Llib -lavformat -lavcodec -lavutil -o dropFrames -Wl,-rpath=lib && echo $?
-// Use
-// ./dropFrames [inputFiles] [outputFile] [frameType] [dropRate] [logFile]
+// Usage:
+// ./dropFrames inputFile outputFile frameType dropRate [logFile]\n
+// Example:
+// ./dropFrames videos/Messi_GOP10.ts videos/Messi_GOP10_TypeI_FLR1.ts I 1 videos/Messi_GOP10_TypeI_FLR
 
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -68,6 +70,7 @@ void print_statistics(struct PacketStatistics ps, FILE *f) {
 int parse_arguments(int argc, char *argv[], struct Arguments *a) {
     if (argc <= 5) {
         printf("USAGE: ./dropFrames inputFile outputFile frameType dropRate [logFile]\n");
+        printf("./dropFrames videos/Messi_GOP10.ts videos/Messi_GOP10_TypeI_FLR1.ts I 1 videos/Messi_GOP10_TypeI_FLR\n");
         return -1;
     }
     a->inputFileName = argv[1];
