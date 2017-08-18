@@ -1,7 +1,7 @@
 // dropFrames.c
 // Build
 // gcc dropFrames.c -lavformat -lavcodec -lswscale -lz -lavutil -o dropFrames
-// gcc dropFrames.c -L../../Work/sqm-ffmpeg/bld/lib -lavformat -lavcodec -lswscale -lz -lavutil -o dropFrames -Wl,-rpath=../../Work/sqm-ffmpeg/bld/lib
+// gcc -w dropFrames.c -Llib -lavformat -lavcodec -lavutil -o dropFrames -Wl,-rpath=lib && echo $?
 // Use
 // ./dropFrames [inputFiles] [outputFile] [frameType] [dropRate] [logFile]
 
@@ -123,7 +123,7 @@ int remove_packet(AVPacket pktBuffer[PACKET_BUFFER_SIZE], int frmTypeBuffer[PACK
 
 int should_drop(int currFrmType, int frmTypeToDrop, int frmLossRate, FILE *f, struct PacketStatistics *ps) {
     int drp = 0;
-    srand(time(NULL));
+    
     int randomNumber = (rand() % 100);
     if (currFrmType == AV_PICTURE_TYPE_I) {
         ps->numOfIFrames++;
@@ -350,6 +350,7 @@ int main(int argc, char *argv[])
     struct PacketStatistics pktStats;
     
     av_log_set_level(AV_LOG_QUIET);
+    srand(time(NULL));
 
     if (parse_arguments(argc, argv, &arguments) < 0)
         return -1;
@@ -455,6 +456,7 @@ int main(int argc, char *argv[])
             while ( (frameTypeBuffer[0] != -1) && (packetBufferSize > 0) ) {
                 drop = 0;
                 //printf("currFrameType = %d\n", frameTypeBuffer[0]);
+
                 drop = should_drop(frameTypeBuffer[0], arguments.frameTypeEnum, arguments.frameLossRate, f, &pktStats);
 
                 if (!drop) {
