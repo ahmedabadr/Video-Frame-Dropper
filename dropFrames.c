@@ -2,10 +2,14 @@
 // Build
 // gcc dropFrames.c -lavformat -lavcodec -lswscale -lz -lavutil -o dropFrames
 // gcc -w dropFrames.c -Llib -lavformat -lavcodec -lavutil -o dropFrames -Wl,-rpath=lib && echo $?
+// gcc dropFrames.c -I/home/shahzad/Desktop/Repo_Clones/Video-Frame-Dropper/sqm-ffmpeg/ffmpeg -L/home/shahzad/Desktop/Repo_Clones/Video-Frame-Dropper/sqm-ffmpeg/lib -lavformat -lavcodec -lswscale -lz -lavutil -o dropFrames -Wl,-rpath=/home/shahzad/Desktop/Repo_Clones/Video-Frame-Dropper/sqm-ffmpeg/lib && echo $?
 // Usage:
 // ./dropFrames inputFile outputFile frameType dropRate [logFile]\n
-// Example:
+// Examples:
 // ./dropFrames videos/Messi_GOP10.ts videos/Messi_GOP10_TypeI_FLR1.ts I 1 videos/Messi_GOP10_TypeI_FLR
+// ./dropFrames input.ts output.ts P 100 output.log
+// Useful for Testing:
+// ./ffprobe -loglevel quiet -select_streams v:0 -show_frames output.ts | grep "SOMETHING"
 
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
