@@ -17,6 +17,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
 
 #define PACKET_BUFFER_SIZE 600
 
@@ -29,6 +31,7 @@ struct Arguments {
     char *frameType;
     enum AVPictureType frameTypeEnum;
     int frameLossRate;
+    int frameDropDuration;
     char *logFileName;
 };
 
@@ -72,33 +75,142 @@ void print_statistics(struct PacketStatistics ps, FILE *f) {
 }
 
 int parse_arguments(int argc, char *argv[], struct Arguments *a) {
-    if (argc <= 5) {
-        printf("USAGE: ./dropFrames inputFile outputFile frameType dropRate [logFile]\n");
-        printf("./dropFrames videos/Messi_GOP10.ts videos/Messi_GOP10_TypeI_FLR1.ts I 1 videos/Messi_GOP10_TypeI_FLR\n");
+    if ( ( argc < 5 ) || ( argc > 13 ) ) {
+        printf("USAGE: -i [INPUT_FILE] -o [OUTPUT_FILE] -fdt [FRAME_DROP_TYPE] -fdr [FRAME_DROP_RATE] -fdd [FRAME_DROP_DURATION] -l [LOG_FILE]\n");
+        printf("WHERE:\n");
+        printf("      [-i]     : path to input media file from. \n");
+        printf("      [-o]     : path to output the generated media file. \n");
+        printf("      [-fdt]   : frame drop type. ( A, I, P, B ) \n");
+        printf("      [-fdr]   : frame drop rate. ( MIN=0 , MAX=100 )\n");
+        printf("      [-fdd]   : frame drop duration, specifies how many frames to do the dropping on. ( MIN=0 ,MAX=TotalFramesInFile )\n");
+        printf("      [-l]     : path to the input media file.\n");
+        printf("EXAMLPLE COMMAND: [./dropFrames -i in.ts -o out.ts -fdt A -fdr 10 -fdd 120 -l debug.log] \n");
+
         return -1;
     }
-    a->inputFileName = argv[1];
-    printf("input: %s\n", a->inputFileName);
-    a->outputFileName = argv[2];
-    printf("output: %s\n", a->outputFileName);
-    
-    a->frameType = argv[3];
-    if ( strcmp(a->frameType, "I") == 0 )
-        a->frameTypeEnum = AV_PICTURE_TYPE_I;
-    else if ( strcmp(a->frameType, "P") == 0 )
-        a->frameTypeEnum = AV_PICTURE_TYPE_P;
-    else if ( strcmp(a->frameType, "B") == 0 )
-        a->frameTypeEnum = AV_PICTURE_TYPE_B;
-    else
-        a->frameTypeEnum = AV_PICTURE_TYPE_NONE;
-    printf("Frame Type: %d => %s\n", a->frameTypeEnum, a->frameType);
+    int arg_index = 1; 
+    for( arg_index = 1; arg_index < argc; ++(arg_index) ) {
+    	
+    	// Find -i and store it's argument inside the Arguments structure.
+    	if ( strcmp( argv[arg_index], "-i" ) == 0 ) { 
+           	if ( ( ( arg_index + 1 ) < argc ) && ( strcmp( argv[arg_index + 1], "" ) != 0 ) ) { 
+                a->inputFileName = argv[arg_index + 1];
+    		    printf( "INPUT_FILE: %s \n", a->inputFileName );
+            }
+    	    else {
+                printf( "arg_index = [%d]\n", arg_index );
 
-    a->frameLossRate = (int) strtol(argv[4], NULL, 10);
-    printf("FLR: %d\%\n", a->frameLossRate);
-    if (argc >= 6) {
-        a->logFileName = argv[5];
-        printf("log: %s\n", a->logFileName);
-    }
+                printf( "argv[arg_index] = [%s]\n", argv[arg_index] );
+                printf( "argv[arg_index+1] = [%s]\n", argv[arg_index+1] );
+                printf( "argv[arg_index]+2 = [%s]\n", argv[arg_index+2] );
+    	        printf("Error: [-i] Needs a Valid Input File Name.\n");
+    		return( -1 );
+    	    }
+        }
+
+    	// Find -o and store it's argument inside the Arguments structure.
+     	else if ( strcmp( argv[arg_index], "-o" ) == 0 ) {
+     
+           	if ( ( ( arg_index + 1 ) < argc ) && ( strcmp( argv[arg_index + 1], "" ) != 0 ) ) { 
+                a->outputFileName = argv[arg_index + 1];
+      	        printf( "OUTPUT_FILE: %s \n", a->outputFileName );
+                }
+    	    else {
+    	        printf( "Error: [-o] Needs a Valid Output File Name. \n" );
+    		return( -1 );
+    	    }
+        }       
+
+    	// Find -fdt and store it's argument inside the Arguments structure.
+     	else if ( strcmp( argv[arg_index], "-fdt" ) == 0 ) {
+     
+           	if ( ( arg_index + 1 ) < argc ) { // Check if there is an argument for this option.
+                // Set the frameType
+                a->frameType = argv[arg_index + 1];
+
+                if ( strcmp( a->frameType, "A" ) == 0 )  {
+                 	a->frameTypeEnum = AV_PICTURE_TYPE_NONE;
+                } else if ( strcmp( a->frameType, "I" ) == 0 ) {
+                    a->frameTypeEnum = AV_PICTURE_TYPE_I;
+                } else if ( strcmp( a->frameType, "P" ) == 0 ) {
+                    a->frameTypeEnum = AV_PICTURE_TYPE_P;
+                } else if ( strcmp( a->frameType, "B" ) == 0 ) {
+                    a->frameTypeEnum = AV_PICTURE_TYPE_B;
+                } else { // Not a Valid Frame Type.
+                    printf( "Error: [-fdt] Needs a Valid Frame Dropping Type. \n" );
+                    return( -1 );
+                }
+                printf( "FRAME_DROP_TYPE: %s(%d) \n", a->frameType, a->frameTypeEnum );
+            } // End of case to check if there is an argument.
+
+    	    else {
+    	        printf( "Error: [-fdt] Needs an argument.\n" );
+    		return( -1 );
+    	    }
+
+        } // End of "-fdt" case.
+
+        // Find -fdr and store it's argument inside the Arguments structure.
+        else if ( strcmp( argv[arg_index], "-fdr" ) == 0 ) {
+     
+            if ( ( arg_index + 1 ) < argc ) { // Check if there is an argument for this option.
+                // Set the frameTLossRate
+                a->frameLossRate = (int) strtol( argv[arg_index + 1], NULL, 10 );
+
+                // Handle Errors.
+                if ( ( a->frameLossRate ) < 0 )  {
+                    a->frameLossRate = 0;
+                } else if ( ( a->frameLossRate ) > 100 )  {
+                    a->frameLossRate = 100;
+                }
+                printf( "FRAME_DROP_RATE: %d \n", a->frameLossRate );
+                // printf("FLR: %d\%\n", a->frameLossRate);
+            } // End of case to check if there is an argument.
+
+            else {
+                printf( "Error: [-fdr] Needs an argument.\n" );
+            return( -1 );
+            }
+
+        } // End of "-fdr" case.
+
+         // Find -fdd and store it's argument inside the Arguments structure.
+        else if ( strcmp( argv[arg_index], "-fdd" ) == 0 ) {
+     
+            if ( ( arg_index + 1 ) < argc ) { // Check if there is an argument for this option.
+                // Set the Duration to drop frames upto (duration count is in terms frames).
+                a->frameDropDuration = (int) strtol( argv[arg_index + 1], NULL, 10 );
+
+                // Handle Errors.
+                if ( ( a->frameDropDuration) < 0 )  {
+                    a->frameDropDuration = 0;
+                }
+                printf( "FRAME_DROP_DURATION: %d \n", a->frameDropDuration);
+            } // End of case to check if there is an argument.
+
+            else {
+                printf( "Error: [-fdd] Needs an argument.\n" );
+            return( -1 );
+            }
+
+        } // End of "-fdd" case.
+
+
+        // Find -l and store it's argument inside the Arguments structure.
+        else if ( strcmp( argv[arg_index], "-l" ) == 0 ) {
+            if ( ( arg_index + 1 ) < argc ) { // Check if there is an argument for this option.
+                a->logFileName = argv[arg_index + 1];
+                printf( "LOG_FILE: %s \n", a->logFileName );
+            } // End of case to check if there is an argument.
+
+            else {
+                printf( "Error: [-l] Needs an argument.\n" );
+            return( -1 );
+            }
+        } // End of "-i" case.
+
+    } // End of For-Loop that parsees all the arguments.
+
     return 0;
 }
 
