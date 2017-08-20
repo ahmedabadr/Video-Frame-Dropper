@@ -487,11 +487,11 @@ int main(int argc, char *argv[])
     
     // Open Log File
     FILE *f;
-    if (argc == 6) {
+    if ( arguments.logFileName != NULL ) {
         f = fopen(arguments.logFileName, "w");
         if (f == NULL)
         {
-            printf("Error opening file!\n");
+            printf("Error opening log file!\n");
             exit(1);
         }
     }
