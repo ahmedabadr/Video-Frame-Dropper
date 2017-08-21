@@ -12,11 +12,29 @@ Usage:
 WHERE:
       [-i]     : path to input media file from. 
       [-o]     : path to output the generated media file. 
-      [-fdt]   : frame drop type. ( A, I, P, B ) 
-      [-fdr]   : frame drop rate. ( MIN=0 , MAX=100 )
+      [-fdt]   : frame drop type. ( A, I, P, B ). Default is A if not specified. 
+      [-fdr]   : frame drop rate. ( MIN=0 , MAX=100 ). Default is 0 if not specified. 
       [-fdd]   : frame drop duration, specifies how many frames to do the dropping on. ( MIN=0 ,MAX=TotalFramesInFile )
       [-l]     : path to the input media file.
 
-Example:
+      Optional: -o   [Default: prepends "Dropped_File_" to the input file name] 
+                -fdt [Default: A] 
+                -fdr [Defualt: 0] 
+                -fdd [Default: 0] 
+                -l   [Default: no log output]
+
+Examples:
 --------
+./dropFrames -i in.ts -o out.ts -fdt I -fdr 100 -l debug.log
 ./dropFrames -i in.ts -o out.ts -fdt A -fdr 10 -fdd 120 -l debug.log
+./dropFrames -i in.ts (Does no dropping and just copies everything to a file called "Dropped_File_in.ts")
+./dropFrames -i in.ts -fdr 50 (Drops 50% of Any frames and dumps to a file called Dropped_File_in.ts) 
+
+
+Extra:
+--------
+* MediaInfo can be used to get total audio or video framecount.
+  - Try this: [ mediainfo --fullscan inputfile | grep "Frame count" ]
+* You can install mediainfo by [ apt-get install mediainfo ]
+
+
