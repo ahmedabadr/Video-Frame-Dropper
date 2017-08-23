@@ -282,10 +282,11 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
     if ( ( a->fdtSize == a->fdrSize ) &&
          ( a->fdtSize == a->fddSize ) &&
          ( a->fdrSize == a->fddSize ) ) {
-        return 0;
+        return ( 0 );
     }
     else {
-        printf( "ERROR: All arguments to -fdt -fdr -fdd must have same number of elements." ); 
+        printf( "ERROR: All arguments to -fdt -fdr -fdd must have same number of elements.\n" ); 
+        return( -1 );
     }
 }
 
