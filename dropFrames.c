@@ -20,21 +20,33 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define PACKET_BUFFER_SIZE  600
-#define MAX_FIELD_LEN       128
-#define MAX_VECTOR_LEN      20
+#define PACKET_BUFFER_SIZE    600
+#define MAX_FIELD_LEN         128
+#define MAX_VECTOR_LEN        20
 
 //static AVFormatContext *ifmt_ctx;
 static AVFormatContext *ofmt_ctx;
 
 struct Arguments {
+    // files
     char inputFileName[MAX_FIELD_LEN];
     char outputFileName[MAX_FIELD_LEN];
-    char frameType[2];
-    enum AVPictureType frameTypeEnum;
-    int frameLossRate;
-    int frameDropDuration;
     char logFileName[MAX_FIELD_LEN];
+
+    // fdt
+    char frameType[MAX_VECTOR_LEN];
+    enum AVPictureType frameTypeEnum[MAX_VECTOR_LEN];
+    
+    // fdr
+    int frameLossRate[MAX_VECTOR_LEN];
+
+    // fdd 
+    int frameDropDuration[MAX_VECTOR_LEN];
+
+    // Vector Lengths
+    int fdtSize;
+    int fdrSize;
+    int fddSize;
 };
 
 struct PacketStatistics {
@@ -110,13 +122,8 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
                 printf( "INPUT_FILE: %s \n", a->inputFileName );
             }
     	    else {
-                printf( "arg_index = [%d]\n", arg_index );
-
-                printf( "argv[arg_index] = [%s]\n", argv[arg_index] );
-                printf( "argv[arg_index+1] = [%s]\n", argv[arg_index+1] );
-                printf( "argv[arg_index]+2 = [%s]\n", argv[arg_index+2] );
     	        printf("Error: [-i] Needs a Valid Input File Name.\n");
-    		return( -1 );
+    	    	return( -1 );
     	    }
         }
 
@@ -129,7 +136,7 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
                 }
     	    else {
     	        printf( "Error: [-o] Needs a Valid Output File Name. \n" );
-    		return( -1 );
+    	    	return( -1 );
     	    }
         }       
 
@@ -137,27 +144,42 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
      	else if ( strcmp( argv[arg_index], "-fdt" ) == 0 ) {
      
            	if ( ( arg_index + 1 ) < argc ) { // Check if there is an argument for this option.
-                // Set the frameType
-                strcpy( a->frameType, argv[arg_index + 1] );
 
-                if ( strcmp( a->frameType, "A" ) == 0 )  {
-                 	a->frameTypeEnum = AV_PICTURE_TYPE_NONE;
-                } else if ( strcmp( a->frameType, "I" ) == 0 ) {
-                    a->frameTypeEnum = AV_PICTURE_TYPE_I;
-                } else if ( strcmp( a->frameType, "P" ) == 0 ) {
-                    a->frameTypeEnum = AV_PICTURE_TYPE_P;
-                } else if ( strcmp( a->frameType, "B" ) == 0 ) {
-                    a->frameTypeEnum = AV_PICTURE_TYPE_B;
-                } else { // Not a Valid Frame Type.
-                    printf( "Error: [-fdt] Needs a Valid Frame Dropping Type. \n" );
-                    return( -1 );
-                }
-                printf( "FRAME_DROP_TYPE: %s(%d) \n", a->frameType, a->frameTypeEnum );
+                int fdt_count = 0;
+                char frameType_arg[MAX_FIELD_LEN];
+                strcpy( frameType_arg, argv[arg_index + 1] );
+                char * fdt_token = strtok( frameType_arg, "," );
+                while ( fdt_token != NULL ) { // Parse the frame drop types and store them if they are valid.
+
+                    // Set the frame dropping types, which an only be one of: A, I, P, B.
+                    a->frameType[fdt_count] = *( fdt_token ) ; // get the first character.
+
+                    if ( a->frameType[fdt_count] == 'A' )  {
+                   	    a->frameTypeEnum[fdt_count] = AV_PICTURE_TYPE_NONE;
+                     } else if ( a->frameType[fdt_count] == 'I' )  {
+                   	    a->frameTypeEnum[fdt_count] = AV_PICTURE_TYPE_I;
+                     } else if ( a->frameType[fdt_count] == 'P' )  {
+                   	    a->frameTypeEnum[fdt_count] = AV_PICTURE_TYPE_P;
+                     } else if ( a->frameType[fdt_count] == 'B' )  {
+                   	    a->frameTypeEnum[fdt_count] = AV_PICTURE_TYPE_B;
+                     } else { // Not a Valid Frame Type.
+                        printf( "Error: [-fdt] Needs ALL Valid Frame Dropping Types (A, I, P, B) \n" );
+                        return( -1 );
+                     }      
+
+                    printf( "[%d-th]FRAME_DROP_TYPE: %c \n", fdt_count, a->frameType[fdt_count] );
+                    ++( fdt_count );
+                    fdt_token = strtok( NULL, "," );
+                } // End of While-Loop that parses the frame drop types.
+                
+                a->fdtSize = fdt_count;
+                printf( "NUMBER OF FRAME_DROP_TYPES: %d \n", a->fdtSize );
+
             } // End of case to check if there is an argument.
 
     	    else {
     	        printf( "Error: [-fdt] Needs an argument.\n" );
-    		return( -1 );
+    	    	return( -1 );
     	    }
 
         } // End of "-fdt" case.
@@ -166,43 +188,76 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
         else if ( strcmp( argv[arg_index], "-fdr" ) == 0 ) {
      
             if ( ( arg_index + 1 ) < argc ) { // Check if there is an argument for this option.
-                // Set the frameTLossRate
-                a->frameLossRate = (int) strtol( argv[arg_index + 1], NULL, 10 );
+    
+                int fdr_count = 0;
+                char frameLossRate_arg[MAX_FIELD_LEN];
+                strcpy( frameLossRate_arg, argv[arg_index + 1] );
+                char * fdr_token = strtok( frameLossRate_arg, "," );
+                while ( fdr_token != NULL )  { // Parse the frame drop rates and store them if they are valid.
+                    
+                    // Set the frame dropping rates, which is within the range [0, 100] (inslusive) 
+                    a->frameLossRate[fdr_count] = (int) strtol( fdr_token, NULL, 10 );
+              
+                    // Handle Non-Valid Frame Drop Rates.
+                    if ( ( a->frameLossRate[fdr_count] ) < 0 )  {
+                        a->frameLossRate[fdr_count] = 0;
+                        printf( "Warning: [-fdr] Needs ALL Valid Frame Dropping Rates (0-100), Recieved a Negative. \n" );
+                    } else if ( ( a->frameLossRate[fdr_count] ) > 100 )  {
+                        a->frameLossRate[fdr_count] = 100;
+                        printf( "Warning: [-fdr] Needs ALL Valid Frame Dropping Rates (0-100), Recieved an over 100.  \n" );
+                    }
 
-                // Handle Errors.
-                if ( ( a->frameLossRate ) < 0 )  {
-                    a->frameLossRate = 0;
-                } else if ( ( a->frameLossRate ) > 100 )  {
-                    a->frameLossRate = 100;
-                }
-                printf( "FRAME_DROP_RATE: %d \n", a->frameLossRate );
-                // printf("FLR: %d\%\n", a->frameLossRate);
+                    printf( "[%d-th]FRAME_DROP_RATE: %d \n", fdr_count, a->frameLossRate[fdr_count]  );
+                    ++( fdr_count );
+                    fdr_token = strtok( NULL, "," );
+                } // End of While-Loop that parses the frame loss rates.
+                
+                a->fdrSize = fdr_count;
+                printf( "NUMBER OF FRAME_DROP_RATES: %d \n", a->fdrSize );
+
             } // End of case to check if there is an argument.
-
-            else {
-                printf( "Error: [-fdr] Needs an argument.\n" );
-            return( -1 );
+           
+            else { 
+                printf( "Error: [-fdr] Needs an argument.\n" ); 
+    	    	return( -1 );
             }
 
         } // End of "-fdr" case.
 
          // Find -fdd and store it's argument inside the Arguments structure.
         else if ( strcmp( argv[arg_index], "-fdd" ) == 0 ) {
-     
-            if ( ( arg_index + 1 ) < argc ) { // Check if there is an argument for this option.
-                // Set the Duration to drop frames upto (duration count is in terms frames).
-                a->frameDropDuration = (int) strtol( argv[arg_index + 1], NULL, 10 );
 
-                // Handle Errors.
-                if ( ( a->frameDropDuration) < 0 )  {
-                    a->frameDropDuration = 0;
-                }
-                printf( "FRAME_DROP_DURATION: %d \n", a->frameDropDuration);
+            if ( ( arg_index + 1 ) < argc ) { // Check if there is an argument for this option.
+    
+                int fdd_count = 0;
+                char frameDropDuration_arg[MAX_FIELD_LEN];
+                strcpy( frameDropDuration_arg, argv[arg_index + 1] );
+                char * fdd_token = strtok( frameDropDuration_arg, "," );
+                while ( fdd_token != NULL )  { // Parse the frame drop rates and store them if they are valid.
+                    
+                    // Set the durations to drop frames upto (duration count is in terms frames).
+                    a->frameDropDuration[fdd_count] = (int) strtol( fdd_token, NULL, 10 );
+                    
+                    // Handle Non-Valid Frame Durations.
+                    if ( ( a->frameDropDuration[fdd_count] ) < 0 )  { 
+                        a->frameDropDuration[fdd_count] = 0;
+                        printf( "Warning: [-fdd] Needs ALL Valid Frame Dropping Durations (0-NumOfFramesInFile) \n" );
+                    }     
+
+                    printf( "[%d-th]FRAME_DROP_DURATION: %d \n", fdd_count, a->frameDropDuration[fdd_count]  );
+
+                    ++( fdd_count );
+                    fdd_token = strtok( NULL, "," );
+                } // End of While-Loop that parses the frame drop durations.
+                
+                a->fddSize = fdd_count;
+                printf( "NUMBER OF FRAME_DROP_DURATION: %d \n", a->fddSize );
+
             } // End of case to check if there is an argument.
 
             else {
                 printf( "Error: [-fdd] Needs an argument.\n" );
-            return( -1 );
+                return( -1 );
             }
 
         } // End of "-fdd" case.
@@ -222,8 +277,16 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
         } // End of "-l" case.
 
     } // End of For-Loop that parsees all the arguments.
-
-    return 0;
+    
+    // Check if -fdt -fdr -fdd all have same number of arguments provided.
+    if ( ( a->fdtSize == a->fdrSize ) &&
+         ( a->fdtSize == a->fddSize ) &&
+         ( a->fdrSize == a->fddSize ) ) {
+        return 0;
+    }
+    else {
+        printf( "ERROR: All arguments to -fdt -fdr -fdd must have same number of elements." ); 
+    }
 }
 
 int find_packet(AVPacket pktBuffer[PACKET_BUFFER_SIZE], int frmTypeBuffer[PACKET_BUFFER_SIZE], int pktBufferSize, AVFrame* frame) {
@@ -251,6 +314,35 @@ int remove_packet(AVPacket pktBuffer[PACKET_BUFFER_SIZE], int frmTypeBuffer[PACK
     pktBufferSize--;
     return pktBufferSize;
 }
+
+// Modifies fdt_ptr and fdr_ptr to become the respective frame types to drop and the rate to drop at in this current interval(based on fdd)
+int get_Type_Rate( int FrameIndex, struct Arguments * a, int * fdt_ptr, int * fdr_ptr ) {
+   
+    // Parse through the frameDropDuration to find which interval we are in currently, with respect to the current frame index, 
+    int index_fdd = 0 ;   
+    for ( index_fdd = 0; index_fdd < ( a->fddSize ) ; ++( index_fdd ) ) {
+        if ( FrameIndex <= ( a->frameDropDuration[index_fdd] ) ) {
+             *( fdt_ptr ) = a->frameTypeEnum[index_fdd];
+             *( fdr_ptr ) = a->frameLossRate[index_fdd];
+             break;
+        }
+        else {
+            // If last element in frameDropDuration then use the last options for fdt and fdr till the end. 
+            if ( ( a->frameDropDuration[index_fdd] == 0 ) ||
+                 ( ( index_fdd + 1 ) == ( a->fddSize ) ) ) {
+                *( fdt_ptr ) = a->frameTypeEnum[index_fdd];
+                *( fdr_ptr ) = a->frameLossRate[index_fdd];
+            } 
+        }
+    }  
+
+    if ( ( *( fdt_ptr ) < 0 ) || ( *( fdr_ptr ) < 0 ) || ( FrameIndex < 0 ) ) {
+       return( -1 );  
+    }
+
+    return( index_fdd );
+}
+
 
 int should_drop(int currFrmType, int frmTypeToDrop, int frmLossRate, FILE *f, struct PacketStatistics *ps) {
     int drp = 0;
@@ -477,20 +569,37 @@ int main(int argc, char *argv[])
     enum AVMediaType mediaType;
     int drop; // boolean
 
+    // Initialize PacketStatistics Defaults.
     struct PacketStatistics pktStats;
+    pktStats.numOfPackets = 0 ;
+    pktStats.numOfVideoPackets = 0 ;
+    pktStats.numOfAudioPackets = 0 ;
+    pktStats.numOfUnknownPackets = 0 ;
+    pktStats.numOfIFrames = 0 ;
+    pktStats.numOfPFrames = 0 ;
+    pktStats.numOfBFrames = 0 ;
+    pktStats.numOfOtherFrames = 0 ;
+    pktStats.numOfDroppedIFrames = 0 ;
+    pktStats.numOfDroppedPFrames = 0 ;
+    pktStats.numOfDroppedBFrames = 0 ;
+    pktStats.numOfDroppedOtherFrames = 0 ;
+    pktStats.numOfDroppedPackets = 0 ;
     
     av_log_set_level(AV_LOG_QUIET);
     srand(time(NULL));
 
     // Initialize Arguments Defaults.
     struct Arguments arguments;
-    strcpy ( arguments.inputFileName, "" );
-    strcpy ( arguments.outputFileName, "" );
-    strcpy ( arguments.frameType, "A" );
-    arguments.frameTypeEnum = AV_PICTURE_TYPE_NONE;
-    arguments.frameLossRate = 0;
-    arguments.frameDropDuration = 0;
+    strcpy( arguments.inputFileName, "" );
+    strcpy( arguments.outputFileName, "" );
     strcpy ( arguments.logFileName, "" );
+    arguments.frameType[0] = 'A' ;
+    arguments.frameTypeEnum[0] = AV_PICTURE_TYPE_NONE;
+    arguments.frameLossRate[0] = 0;
+    arguments.frameDropDuration[0] = 0;
+    arguments.fdtSize = 1;
+    arguments.fdrSize = 1;
+    arguments.fddSize = 1;
 
     if ( parse_arguments( argc, argv, &arguments ) < 0 ) {
         return -1;
@@ -550,8 +659,7 @@ int main(int argc, char *argv[])
         frameTypeBuffer[i] = -1; // Uninitialized
     int packetBufferSize = 0;
 
-    while (av_read_frame(pFormatCtx, &packet) >= 0)
-    {
+    while (av_read_frame(pFormatCtx, &packet) >= 0) {
         mediaType = pFormatCtx->streams[packet.stream_index]->codec->codec_type;
 
         if (mediaType == AVMEDIA_TYPE_VIDEO) {
@@ -570,7 +678,6 @@ int main(int argc, char *argv[])
                 printf("Packet Found @%d: pts (%d vs %d)\n", pktIndex, frame->pkt_pts, packetBuffer[pktIndex].pts);
                 //packet = packetBuffer[pktIndex];
             }*/
-
             // Print Buffer
             /*
             printf("====================================================\n");
@@ -580,7 +687,6 @@ int main(int argc, char *argv[])
             }
             printf("====================================================\n");
             */
-
             //av_copy_packet(&packet, &packetBuffer[pktIndex]);
             //av_copy_packet_side_data(&packet, &packetBuffer[pktIndex]);
             //printf("PTS = (%d)%" PRId64 " | (%d)%" PRId64 "\n", frame->pict_type, frame->pts, packet.flags & AV_PKT_FLAG_KEY, packet.pts);
@@ -590,14 +696,20 @@ int main(int argc, char *argv[])
             }
             pktStats.numOfVideoPackets++;
 
-
             // Writing Frames From Packet Buffer to Output File
             frameTypeBuffer[0];
             while ( (frameTypeBuffer[0] != -1) && (packetBufferSize > 0) ) {
                 drop = 0;
                 //printf("currFrameType = %d\n", frameTypeBuffer[0]);
+               
+                int curr_fdt = -2;
+                int curr_fdr = -2;
+                // Get the type to drop and the rate to drop at based on this interval(finds current interval from frameDropDuration). 
+                if ( get_Type_Rate( pktStats.numOfVideoPackets, &arguments, &curr_fdt, &curr_fdr ) < 0 ) {
+                    printf( "ERROR While Getting Type and Rate for %d Frame Index\n", pktStats.numOfVideoPackets ) ;
+                }
 
-                drop = should_drop(frameTypeBuffer[0], arguments.frameTypeEnum, arguments.frameLossRate, f, &pktStats);
+                drop = should_drop(frameTypeBuffer[0], curr_fdt, curr_fdr, f, &pktStats);
 
                 if (!drop) {
                     //printf("\nWriting packet[%d]: size = %d, sI = %d, type = %d\n", 0, packetBuffer[0].size, packetBuffer[0].stream_index, mediaType);
@@ -618,9 +730,6 @@ int main(int argc, char *argv[])
                 if (remove_packet(packetBuffer, frameTypeBuffer, packetBufferSize, 0) >= 0)
                     packetBufferSize--;
             }
-
-
-
 
         } else if (mediaType == AVMEDIA_TYPE_AUDIO) {
             pktStats.numOfAudioPackets++;
