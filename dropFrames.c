@@ -88,26 +88,38 @@ void print_statistics(struct PacketStatistics ps, FILE *f) {
     if (f) fprintf(f, " => Total   : %d/%d = %f %%\n", ps.numOfDroppedPackets, ps.numOfVideoPackets, 100 * ((double)ps.numOfDroppedPackets)/((double)ps.numOfVideoPackets));
 }
 
+void print_usage() { 
+    printf( "--------------------------------------------------------------------------------------------------------------------------------- \n" );
+    printf( "USAGE: -i [INPUT_FILE] -o [OUTPUT_FILE] -fdt [FRAME_DROP_TYPES] -fdr [FRAME_DROP_RATES] -fdd [FRAME_DROP_DURATIONS] -l [LOG_FILE] \n" );
+    printf( "--------------------------------------------------------------------------------------------------------------------------------- \n" );
+    printf( "WHERE:\n" );
+    printf( "      [-i]     : path to input media file from.\n" );
+    printf( "      [-o]     : path to output the generated media file.\n" );
+    printf( "      [-fdt]   : comma separated string of frame drop types. (A,I,P,B).\n" );
+    printf( "      [-fdr]   : comma separated string of frame drop rates. ( MIN=0 , MAX=100 ).\n" );
+    printf( "      [-fdd]   : comma separated string of frame drop durations, specifies how many frames to do the dropping on. ( MIN=0 ,MAX=TotalFramesInFile )\n" );
+    printf( "      [-l]     : path to the output log file.\n\n" );
+    printf( "      Optional: -o   [Default: prepends \"Dropped_File_\" to the input file name]\n" );
+    printf( "                -fdt [Default: \"A\"]\n" );
+    printf( "                -fdr [Defualt: \"0\"]\n" );
+    printf( "                -fdd [Default: \"0\"]\n" );
+    printf( "                -l   [Default: no log output]\n\n" );
+    printf( "      Restrictions: * All -fdt -fdr -fdt must all have equal number of elements.\n" );
+    printf( "                    * -fdd must be in ascending order strictly, and must always contain 0 as the last element if total framecount is unknown.\n\n" );
+    printf( "--------------------------------------------------------------------------------------------------------------------------------- \n" );
+    printf( "EXAMLPLE COMMAND: [./dropFrames -i in.ts -o out.ts -fdt \"A,A,B\" -fdr \"0,100,50\" -fdd \"5000,10000,0\" -l debug.log] \n" );
+    printf( "--------------------------------------------------------------------------------------------------------------------------------- \n" );
+
+}
+
 int parse_arguments(int argc, char *argv[], struct Arguments *a) {
     if ( ( argc < 3 ) || ( argc > 13 ) ) {
-        printf( "USAGE: -i [INPUT_FILE] -o [OUTPUT_FILE] -fdt [FRAME_DROP_TYPE] -fdr [FRAME_DROP_RATE] -fdd [FRAME_DROP_DURATION] -l [LOG_FILE]\n");
-        printf( "WHERE:\n");
-        printf( "      [-i]     : path to input media file from. \n");
-        printf( "      [-o]     : path to output the generated media file. \n");
-        printf( "      [-fdt]   : frame drop type. ( A, I, P, B ). Default is A if not specified. \n");
-        printf( "      [-fdr]   : frame drop rate. ( MIN=0 , MAX=100 ). Default is 0 if not specified. \n");
-        printf( "      [-fdd]   : frame drop duration, specifies how many frames to do the dropping on. ( MIN=0 ,MAX=TotalFramesInFile )\n");
-        printf( "      [-l]     : path to the input media file.\n\n");
 
-        printf( "      Optional: -o   [Default: prepends 'Dropped_File_' to the input file name]\n" );
-        printf( "                -fdt [Default: A]\n" );
-        printf( "                -fdr [Defualt: 0]\n" );                 
-        printf( "                -fdd [Default: 0]\n" ); 
-        printf( "                -l   [Default: no log output]\n" ); 
-        printf( "EXAMLPLE COMMAND: [./dropFrames -i in.ts -o out.ts -fdt A -fdr 10 -l debug.log] \n" );
+        print_usage();
 
-        return -1;
+        return( -1 );
     }
+
     int arg_index = 1; 
     for( arg_index = 1; arg_index < argc; ++(arg_index) ) {
     	
@@ -123,6 +135,7 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
             }
     	    else {
     	        printf("Error: [-i] Needs a Valid Input File Name.\n");
+                print_usage();
     	    	return( -1 );
     	    }
         }
@@ -136,6 +149,7 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
                 }
     	    else {
     	        printf( "Error: [-o] Needs a Valid Output File Name. \n" );
+                print_usage();
     	    	return( -1 );
     	    }
         }       
@@ -164,6 +178,7 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
                    	    a->frameTypeEnum[fdt_count] = AV_PICTURE_TYPE_B;
                      } else { // Not a Valid Frame Type.
                         printf( "Error: [-fdt] Needs ALL Valid Frame Dropping Types (A, I, P, B) \n" );
+                        print_usage();
                         return( -1 );
                      }      
 
@@ -179,6 +194,7 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
 
     	    else {
     	        printf( "Error: [-fdt] Needs an argument.\n" );
+                print_usage();
     	    	return( -1 );
     	    }
 
@@ -219,6 +235,7 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
            
             else { 
                 printf( "Error: [-fdr] Needs an argument.\n" ); 
+                print_usage();
     	    	return( -1 );
             }
 
@@ -257,6 +274,7 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
 
             else {
                 printf( "Error: [-fdd] Needs an argument.\n" );
+                print_usage();
                 return( -1 );
             }
 
@@ -272,7 +290,8 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
 
             else {
                 printf( "Error: [-l] Needs an argument.\n" );
-            return( -1 );
+                print_usage();
+                return( -1 );
             }
         } // End of "-l" case.
 
@@ -286,6 +305,7 @@ int parse_arguments(int argc, char *argv[], struct Arguments *a) {
     }
     else {
         printf( "ERROR: All arguments to -fdt -fdr -fdd must have same number of elements.\n" ); 
+        print_usage();
         return( -1 );
     }
 }
